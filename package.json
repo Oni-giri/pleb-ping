@@ -1,0 +1,156 @@
+{
+  "name": "remote-peon",
+  "displayName": "Remote Peon",
+  "description": "Audio notifications for AI coding agents — works over Remote-SSH and code-server",
+  "version": "0.1.0",
+  "publisher": "oni-giri",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude-code",
+    "notifications",
+    "audio",
+    "remote",
+    "AI",
+    "coding-agent"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Remote Peon",
+      "properties": {
+        "remotePeon.pack": {
+          "type": "string",
+          "default": "peon",
+          "description": "Active sound pack ID. Must match a folder name in the packs directory."
+        },
+        "remotePeon.packsDirectory": {
+          "type": "string",
+          "default": "~/.remote-peon/packs",
+          "description": "Directory containing sound packs."
+        },
+        "remotePeon.eventFile": {
+          "type": "string",
+          "default": "/tmp/remote-peon.ev",
+          "description": "Path to the event file written by the hook script. Must match REMOTE_PEON_EVENT_FILE in the hook."
+        },
+        "remotePeon.volume": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Playback volume (0.0 = silent, 1.0 = full)."
+        },
+        "remotePeon.debounceMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 0,
+          "description": "Minimum milliseconds between sounds. Prevents spam during rapid events."
+        },
+        "remotePeon.sounds.greeting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play a sound when the agent starts."
+        },
+        "remotePeon.sounds.acknowledge": {
+          "type": "boolean",
+          "default": false,
+          "description": "Play a sound on each tool use (spammy — disabled by default)."
+        },
+        "remotePeon.sounds.permission": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play a sound when the agent needs your approval."
+        },
+        "remotePeon.sounds.complete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play a sound when the agent finishes a task."
+        },
+        "remotePeon.sounds.error": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play a sound when the agent hits an error."
+        },
+        "remotePeon.sounds.annoyed": {
+          "type": "boolean",
+          "default": true,
+          "description": "Play an easter egg sound occasionally."
+        },
+        "remotePeon.autoInstallHooks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically install Claude Code hooks when the extension activates."
+        },
+        "remotePeon.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show agent status in the status bar."
+        },
+        "remotePeon.usePolling": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use polling (fs.watchFile) instead of inotify (fs.watch). Enable if fs.watch is unreliable on your filesystem (NFS, FUSE)."
+        },
+        "remotePeon.pollingIntervalMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100,
+          "description": "Polling interval in ms when usePolling is enabled."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "remotePeon.selectPack",
+        "title": "Remote Peon: Select Sound Pack"
+      },
+      {
+        "command": "remotePeon.previewSounds",
+        "title": "Remote Peon: Preview Current Pack Sounds"
+      },
+      {
+        "command": "remotePeon.installHooks",
+        "title": "Remote Peon: Install Claude Code Hooks"
+      },
+      {
+        "command": "remotePeon.removeHooks",
+        "title": "Remote Peon: Remove Claude Code Hooks"
+      },
+      {
+        "command": "remotePeon.openPacksDirectory",
+        "title": "Remote Peon: Open Packs Directory"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "npm run check-types && node esbuild.js",
+    "check-types": "tsc --noEmit",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "vscode:prepublish": "npm run compile",
+    "package": "npx @vscode/vsce package",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "latest",
+    "esbuild": "^0.19.0",
+    "npm-run-all": "^4.1.5",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  }
+}
