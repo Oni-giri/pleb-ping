@@ -13,7 +13,7 @@ Remote Server                          Local Machine
 │   └── hook fires            │        │              │
 │         └── remote-peon.sh  │        │              │
 │               └── writes    │        │              │
-│            /tmp/remote-peon.ev       │              │
+│      ~/.remote-peon/remote-peon.ev   │              │
 │                    │        │        │              │
 │ VS Code Extension  │        │        │              │
 │   └── fs.watch ────┘        │        │              │
@@ -24,7 +24,7 @@ Remote Server                          Local Machine
 ```
 
 1. Claude Code fires a lifecycle hook (start, stop, needs permission).
-2. A shell script writes one line to `/tmp/remote-peon.ev`.
+2. A shell script writes one line to `~/.remote-peon/remote-peon.ev`.
 3. The extension watches that file with `fs.watch` (inotify — zero CPU when idle).
 4. It picks a sound from the active pack and plays it via a hidden webview.
 5. Since the webview renders locally (Electron or browser), audio comes out of your speakers.
@@ -99,7 +99,9 @@ After installation, run `/hooks` in Claude Code to review and activate the hooks
 You don't need Claude Code running to verify the extension works. Simulate events from any terminal:
 
 ```bash
-printf '%s complete\n' "$(date +%s)000" > /tmp/remote-peon.ev.tmp && mv /tmp/remote-peon.ev.tmp /tmp/remote-peon.ev
+EVENT_FILE="$HOME/.remote-peon/remote-peon.ev"
+mkdir -p "$(dirname "$EVENT_FILE")"
+printf '%s complete\n' "$(date +%s)000" > "${EVENT_FILE}.tmp" && mv "${EVENT_FILE}.tmp" "$EVENT_FILE"
 ```
 
 Replace `complete` with `greeting`, `permission`, or `error` to test different categories.
@@ -135,7 +137,7 @@ Configure in VS Code Settings (`Ctrl+,`) under "Remote Peon":
 |---|---|---|
 | `remotePeon.pack` | `"peon"` | Active sound pack ID |
 | `remotePeon.packsDirectory` | `"~/.remote-peon/packs"` | Directory containing sound packs |
-| `remotePeon.eventFile` | `"/tmp/remote-peon.ev"` | Event file path |
+| `remotePeon.eventFile` | `"~/.remote-peon/remote-peon.ev"` | Event file path |
 | `remotePeon.volume` | `0.7` | Playback volume (0.0–1.0) |
 | `remotePeon.debounceMs` | `2000` | Min ms between sounds |
 | `remotePeon.autoInstallHooks` | `true` | Auto-install hooks on activation |

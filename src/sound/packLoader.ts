@@ -38,6 +38,7 @@ export function loadPack(packDir: string): SoundPack | null {
   }
 
   const soundsDir = path.join(packDir, "sounds");
+  const soundsDirResolved = path.resolve(soundsDir);
 
   const sounds: Partial<Record<SoundCategory, string[]>> = {};
 
@@ -47,7 +48,20 @@ export function loadPack(packDir: string): SoundPack | null {
 
     const resolved: string[] = [];
     for (const file of files) {
-      const fullPath = path.join(soundsDir, file);
+      if (typeof file !== "string") continue;
+
+      const fullPath = path.resolve(soundsDir, file);
+      const relative = path.relative(soundsDirResolved, fullPath);
+      const escapesSoundsDir =
+        relative.startsWith("..") || path.isAbsolute(relative);
+
+      if (escapesSoundsDir) {
+        console.warn(
+          `Remote Peon: Rejected path outside sounds directory: ${file}`
+        );
+        continue;
+      }
+
       if (fs.existsSync(fullPath)) {
         resolved.push(fullPath);
       } else {

@@ -25,11 +25,9 @@ export class Config {
     return resolveHome(raw);
   }
 
-  /** Event file path. Default: /tmp/remote-peon.ev */
+  /** Event file path. Default: ~/.remote-peon/remote-peon.ev */
   get eventFile(): string {
-    return resolveHome(
-      this.cfg.get<string>("eventFile", "/tmp/remote-peon.ev")
-    );
+    return resolveHome(this.cfg.get<string>("eventFile", defaultEventFile()));
   }
 
   /** Volume from 0.0 to 1.0. Default: 0.7 */
@@ -80,4 +78,8 @@ function resolveHome(filepath: string): string {
     return path.join(os.homedir(), filepath.slice(1));
   }
   return filepath;
+}
+
+function defaultEventFile(): string {
+  return path.join(os.homedir(), ".remote-peon", "remote-peon.ev");
 }

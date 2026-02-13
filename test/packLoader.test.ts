@@ -116,6 +116,30 @@ describe("loadPack", () => {
     assert.ok(pack!.sounds.greeting![0].endsWith("exists.mp3"));
   });
 
+  it("rejects paths that escape the sounds directory", () => {
+    const packDir = path.join(testDir, "escape-test");
+    const soundsDir = path.join(packDir, "sounds");
+    fs.mkdirSync(soundsDir, { recursive: true });
+
+    fs.writeFileSync(path.join(testDir, "outside.mp3"), "fake-audio");
+    fs.writeFileSync(path.join(soundsDir, "inside.mp3"), "fake-audio");
+
+    fs.writeFileSync(
+      path.join(packDir, "manifest.json"),
+      JSON.stringify({
+        id: "escape-test",
+        sounds: {
+          greeting: ["../outside.mp3", "inside.mp3"],
+        },
+      })
+    );
+
+    const pack = loadPack(packDir);
+    assert.ok(pack);
+    assert.strictEqual(pack!.sounds.greeting?.length, 1);
+    assert.ok(pack!.sounds.greeting![0].endsWith("inside.mp3"));
+  });
+
   it("defaults name to id when name is missing", () => {
     const packDir = path.join(testDir, "no-name");
     const soundsDir = path.join(packDir, "sounds");

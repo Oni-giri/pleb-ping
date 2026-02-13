@@ -8,19 +8,24 @@ import { AudioBackend } from "./audioBackend";
 export class NativeBackend implements AudioBackend {
   play(filePath: string, volume: number): void {
     const platform = process.platform;
+    const safeVolume = Math.max(0, Math.min(1, volume));
+    const options = { timeout: 10000, windowsHide: true };
 
     try {
       if (platform === "darwin") {
-        cp.exec(`afplay -v ${volume} "${filePath}"`, { timeout: 10000 });
+        cp.execFile("afplay", ["-v", String(safeVolume), filePath], options);
       } else if (platform === "linux") {
-        const paVolume = Math.round(volume * 65536);
-        cp.exec(`paplay --volume=${paVolume} "${filePath}"`, {
-          timeout: 10000,
-        });
+        const paVolume = Math.round(safeVolume * 65536);
+        cp.execFile("paplay", [`--volume=${paVolume}`, filePath], options);
       } else if (platform === "win32") {
-        cp.exec(
-          `powershell -NonInteractive -Command "(New-Object Media.SoundPlayer '${filePath.replace(/'/g, "''")}').PlaySync()"`,
-          { timeout: 10000 }
+        cp.execFile(
+          "powershell",
+          [
+            "-NonInteractive",
+            "-Command",
+            `(New-Object Media.SoundPlayer '${filePath.replace(/'/g, "''")}').PlaySync()`,
+          ],
+          options
         );
       }
     } catch (err) {

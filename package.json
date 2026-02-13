@@ -42,7 +42,7 @@
         },
         "remotePeon.eventFile": {
           "type": "string",
-          "default": "/tmp/remote-peon.ev",
+          "default": "~/.remote-peon/remote-peon.ev",
           "description": "Path to the event file written by the hook script. Must match REMOTE_PEON_EVENT_FILE in the hook."
         },
         "remotePeon.volume": {

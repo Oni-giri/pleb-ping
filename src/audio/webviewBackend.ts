@@ -27,11 +27,12 @@ export class WebviewBackend implements AudioBackend {
     const panel = this.ensurePanel();
     const fileUri = vscode.Uri.file(filePath);
     const webviewUri = panel.webview.asWebviewUri(fileUri);
+    const safeVolume = Math.max(0, Math.min(1, volume));
 
     panel.webview.postMessage({
       type: "play",
       src: webviewUri.toString(),
-      volume,
+      volume: safeVolume,
     });
 
     this.resetIdleTimer();
@@ -59,11 +60,11 @@ export class WebviewBackend implements AudioBackend {
       }
     );
 
-    this.panel.webview.html = this.getWebviewHtml();
+    this.panel.webview.html = this.getWebviewHtml(this.panel.webview);
 
     this.panel.webview.onDidReceiveMessage(
       (msg) => {
-        if (msg.type === "autoplay-blocked") {
+        if (msg && msg.type === "autoplay-blocked") {
           vscode.window
             .showInformationMessage(
               "Remote Peon: Browser blocked audio. Click 'Enable' then click inside the panel to unlock.",
@@ -101,17 +102,42 @@ export class WebviewBackend implements AudioBackend {
     }, WebviewBackend.IDLE_TIMEOUT_MS);
   }
 
-  private getWebviewHtml(): string {
+  private getWebviewHtml(webview: vscode.Webview): string {
+    const nonce = createNonce();
+    const csp = [
+      "default-src 'none'",
+      `media-src ${webview.cspSource} blob:`,
+      `img-src ${webview.cspSource} data:`,
+      `style-src 'nonce-${nonce}'`,
+      `script-src 'nonce-${nonce}'`,
+    ].join("; ");
+
     return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>Remote Peon Audio</title></head>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <title>Remote Peon Audio</title>
+  <style nonce="${nonce}">
+    #unlock {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      cursor: pointer;
+      font: 20px system-ui;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+  </style>
+</head>
 <body>
-  <div id="unlock" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);
-    color:white;cursor:pointer;font:20px system-ui;
-    align-items:center;justify-content:center;z-index:9999;">
+  <div id="unlock">
     Click anywhere to enable Remote Peon sounds
   </div>
-  <script>
+  <script nonce="${nonce}">
     (function() {
       const audio = new Audio();
       const vscode = acquireVsCodeApi();
@@ -120,7 +146,12 @@ export class WebviewBackend implements AudioBackend {
 
       window.addEventListener("message", function(event) {
         const msg = event.data;
-        if (msg.type === "play") {
+        if (
+          msg &&
+          msg.type === "play" &&
+          typeof msg.src === "string" &&
+          typeof msg.volume === "number"
+        ) {
           audio.src = msg.src;
           audio.volume = msg.volume;
           audio.play().catch(function() {
@@ -164,4 +195,14 @@ export class WebviewBackend implements AudioBackend {
     this.panel?.dispose();
     this.panel = null;
   }
+}
+
+function createNonce(): string {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let value = "";
+  for (let i = 0; i < 32; i++) {
+    value += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return value;
 }

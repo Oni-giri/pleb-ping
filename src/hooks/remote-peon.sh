@@ -9,12 +9,19 @@
 #   $1 — event type: session_start | notification | stop | post_tool_use
 #
 # Environment:
-#   REMOTE_PEON_EVENT_FILE — path to event file (default: /tmp/remote-peon.ev)
+#   REMOTE_PEON_EVENT_FILE — path to event file
+#     (default: $HOME/.remote-peon/remote-peon.ev)
 
 set -e
 
 EVENT_TYPE="${1:-unknown}"
-EVENT_FILE="${REMOTE_PEON_EVENT_FILE:-/tmp/remote-peon.ev}"
+EVENT_FILE="${REMOTE_PEON_EVENT_FILE:-$HOME/.remote-peon/remote-peon.ev}"
+
+EVENT_DIR="$(dirname "$EVENT_FILE")"
+mkdir -p "$EVENT_DIR"
+
+# Restrict permissions for files created by this hook.
+umask 077
 
 # IMPORTANT: Drain stdin immediately to unblock Claude Code.
 # Claude Code pipes hook JSON to stdin. If we don't consume it,

@@ -129,7 +129,7 @@ export class EventWatcher implements vscode.Disposable {
       fs.mkdirSync(dir, { recursive: true });
 
       if (!fs.existsSync(this.eventFile)) {
-        fs.writeFileSync(this.eventFile, "");
+        fs.writeFileSync(this.eventFile, "", { mode: 0o600 });
       }
     } catch (err) {
       console.error("Remote Peon: Failed to create event file:", err);
