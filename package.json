@@ -111,6 +111,16 @@
         }
       }
     },
+    "views": {
+      "panel": [
+        {
+          "type": "webview",
+          "id": "remotePeon.audio",
+          "name": "Remote Peon",
+          "when": "remotePeon.isRemote"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "remotePeon.selectPack",

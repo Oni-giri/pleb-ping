@@ -1,66 +1,48 @@
 import * as vscode from "vscode";
 import { AudioBackend } from "./audioBackend";
 
-export class WebviewBackend implements AudioBackend {
-  private panel: vscode.WebviewPanel | null = null;
-  private idleTimer: ReturnType<typeof setTimeout> | null = null;
-
-  private static IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+export class WebviewBackend implements AudioBackend, vscode.WebviewViewProvider {
+  private view: vscode.WebviewView | null = null;
+  private ready = false;
+  private pendingPlays: Array<{ filePath: string; volume: number }> = [];
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly packsDirectory: string
   ) {}
 
-  play(filePath: string, volume: number): void {
-    const panel = this.ensurePanel();
-    const fileUri = vscode.Uri.file(filePath);
-    const webviewUri = panel.webview.asWebviewUri(fileUri);
+  resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken
+  ): void {
+    this.view = webviewView;
+    this.ready = false;
 
-    panel.webview.postMessage({
-      type: "play",
-      src: webviewUri.toString(),
-      volume,
-    });
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.file(this.packsDirectory),
+        this.context.extensionUri,
+      ],
+    };
 
-    this.resetIdleTimer();
-  }
+    webviewView.webview.html = this.getWebviewHtml();
 
-  private ensurePanel(): vscode.WebviewPanel {
-    if (this.panel) {
-      return this.panel;
-    }
-
-    this.panel = vscode.window.createWebviewPanel(
-      "remotePeonAudio",
-      "Remote Peon",
-      {
-        viewColumn: vscode.ViewColumn.Beside,
-        preserveFocus: true,
-      },
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.file(this.packsDirectory),
-          this.context.extensionUri,
-        ],
-      }
-    );
-
-    this.panel.webview.html = this.getWebviewHtml();
-
-    this.panel.webview.onDidReceiveMessage(
+    webviewView.webview.onDidReceiveMessage(
       (msg) => {
-        if (msg.type === "autoplay-blocked") {
+        if (msg.type === "ready") {
+          this.ready = true;
+          this.flushPending();
+        } else if (msg.type === "autoplay-blocked") {
           vscode.window
             .showInformationMessage(
               "Remote Peon: Browser blocked audio. Click 'Enable' then click inside the panel to unlock.",
               "Enable"
             )
             .then((choice) => {
-              if (choice === "Enable" && this.panel) {
-                this.panel.reveal(undefined, false);
+              if (choice === "Enable" && this.view) {
+                this.view.show(false);
               }
             });
         }
@@ -69,25 +51,43 @@ export class WebviewBackend implements AudioBackend {
       this.context.subscriptions
     );
 
-    this.panel.onDidDispose(
+    webviewView.onDidDispose(
       () => {
-        this.panel = null;
+        this.view = null;
+        this.ready = false;
       },
       undefined,
       this.context.subscriptions
     );
-
-    return this.panel;
   }
 
-  private resetIdleTimer(): void {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
+  play(filePath: string, volume: number): void {
+    if (this.view && this.ready) {
+      this.postPlay(filePath, volume);
+    } else {
+      this.pendingPlays.push({ filePath, volume });
+      if (!this.view) {
+        vscode.commands.executeCommand("remotePeon.audio.focus");
+      }
     }
-    this.idleTimer = setTimeout(() => {
-      this.panel?.dispose();
-      this.panel = null;
-    }, WebviewBackend.IDLE_TIMEOUT_MS);
+  }
+
+  private postPlay(filePath: string, volume: number): void {
+    if (!this.view) return;
+    const fileUri = vscode.Uri.file(filePath);
+    const webviewUri = this.view.webview.asWebviewUri(fileUri);
+    this.view.webview.postMessage({
+      type: "play",
+      src: webviewUri.toString(),
+      volume,
+    });
+  }
+
+  private flushPending(): void {
+    for (const pending of this.pendingPlays) {
+      this.postPlay(pending.filePath, pending.volume);
+    }
+    this.pendingPlays = [];
   }
 
   private getWebviewHtml(): string {
@@ -106,6 +106,8 @@ export class WebviewBackend implements AudioBackend {
       const vscode = acquireVsCodeApi();
       let unlocked = false;
       let pendingPlay = null;
+
+      vscode.postMessage({ type: "ready" });
 
       window.addEventListener("message", function(event) {
         const msg = event.data;
@@ -147,10 +149,8 @@ export class WebviewBackend implements AudioBackend {
   }
 
   dispose(): void {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-    }
-    this.panel?.dispose();
-    this.panel = null;
+    this.view = null;
+    this.ready = false;
+    this.pendingPlays = [];
   }
 }

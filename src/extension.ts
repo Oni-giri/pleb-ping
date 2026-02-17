@@ -38,11 +38,24 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // Audio backend
-  const audioBackend: AudioBackend = isRemoteEnvironment()
+  const remote = isRemoteEnvironment();
+  const audioBackend: AudioBackend = remote
     ? new WebviewBackend(context, config.packsDirectory)
     : new NativeBackend();
+
+  if (remote) {
+    vscode.commands.executeCommand("setContext", "remotePeon.isRemote", true);
+    context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(
+        "remotePeon.audio",
+        audioBackend as WebviewBackend,
+        { webviewOptions: { retainContextWhenHidden: true } }
+      )
+    );
+  }
+
   outputChannel.appendLine(
-    `Audio backend: ${isRemoteEnvironment() ? "webview (remote)" : "native (local)"}`
+    `Audio backend: ${remote ? "webview (remote)" : "native (local)"}`
   );
 
   // Status bar
