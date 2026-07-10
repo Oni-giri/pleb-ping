@@ -1,12 +1,12 @@
 #!/bin/sh
-# remote-peon.sh — Claude Code hook that writes events for the VS Code extension.
+# remote-peon.sh — Claude Code/Codex hook that writes events for the VS Code extension.
 #
 # Usage:
-#   Called by Claude Code hooks. Receives hook event JSON on stdin.
+#   Called by Claude Code or Codex hooks. Receives hook event JSON on stdin.
 #   Writes a single-line event to the event file.
 #
 # Arguments:
-#   $1 — event type: session_start | notification | stop | post_tool_use
+#   $1 — event type: session_start | notification | permission_request | stop | post_tool_use
 #
 # Environment:
 #   REMOTE_PEON_EVENT_FILE — path to event file (default: /tmp/remote-peon.ev)
@@ -21,10 +21,11 @@ EVENT_FILE="${REMOTE_PEON_EVENT_FILE:-/tmp/remote-peon.ev}"
 # the pipe stays open and Claude Code waits for our process to finish reading.
 cat > /dev/null
 
-# Map Claude Code hook event types to sound categories.
+# Map Claude Code and Codex hook event types to sound categories.
 case "$EVENT_TYPE" in
   session_start) CATEGORY="greeting" ;;
   notification)  CATEGORY="permission" ;;
+  permission_request) CATEGORY="permission" ;;
   stop)          CATEGORY="complete" ;;
   post_tool_use) CATEGORY="acknowledge" ;;
   *)             exit 0 ;;  # Unknown event — ignore silently

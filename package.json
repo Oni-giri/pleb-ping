@@ -129,6 +129,14 @@
         "title": "Remote Peon: Remove Claude Code Hooks"
       },
       {
+        "command": "remotePeon.installCodexHooks",
+        "title": "Remote Peon: Install Codex CLI Hooks"
+      },
+      {
+        "command": "remotePeon.removeCodexHooks",
+        "title": "Remote Peon: Remove Codex CLI Hooks"
+      },
+      {
         "command": "remotePeon.openPacksDirectory",
         "title": "Remote Peon: Open Packs Directory"
       }
