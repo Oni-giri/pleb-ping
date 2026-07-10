@@ -1,6 +1,6 @@
 # Remote Peon
 
-Audio notifications for AI coding agents — works over Remote-SSH and code-server.
+Audio notifications for Claude Code, Codex CLI, and other AI coding agents — works over Remote-SSH and code-server.
 
 Hear a sound when Claude Code finishes a task, needs permission, starts a session, or hits an error. Unlike terminal-based notification tools, Remote Peon works when your terminal is on a remote server with no audio device.
 
@@ -94,7 +94,13 @@ This copies the hook script to `~/.claude/hooks/remote-peon.sh` and registers it
 
 After installation, run `/hooks` in Claude Code to review and activate the hooks.
 
-### 3. Test without Claude Code
+### 3. Install Codex CLI hooks
+
+Codex setup is explicit: run **Command Palette** → `Remote Peon: Install Codex CLI Hooks`. This copies the adapter to `~/.codex/hooks/remote-peon.sh` and registers `SessionStart` (greeting), `PermissionRequest` (approval), and `Stop` (completion) in `~/.codex/hooks.json`.
+
+Then run `/hooks` in Codex to review and trust the new command hooks before they run.
+
+### 4. Test without Claude Code
 
 You don't need Claude Code running to verify the extension works. Simulate events from any terminal:
 
@@ -125,6 +131,8 @@ Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and search for:
 | `Remote Peon: Preview Current Pack Sounds` | Play one sound from each enabled category |
 | `Remote Peon: Install Claude Code Hooks` | Install/reinstall the hook script |
 | `Remote Peon: Remove Claude Code Hooks` | Uninstall hooks from Claude Code settings |
+| `Remote Peon: Install Codex CLI Hooks` | Install Codex hooks, then review them with `/hooks` |
+| `Remote Peon: Remove Codex CLI Hooks` | Remove only Remote Peon handlers from Codex hooks config |
 | `Remote Peon: Open Packs Directory` | Open the packs folder in your file manager |
 
 ## Settings

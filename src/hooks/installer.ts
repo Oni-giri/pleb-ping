@@ -141,3 +141,10 @@ export function uninstallHooksConfig(): void {
     // If settings file doesn't exist, nothing to uninstall
   }
 }
+
+export {
+  installCodexHookScript,
+  installCodexHooksConfig,
+  uninstallCodexHooksConfig,
+} from "./codexInstaller";
+export type { HookConfigResult } from "./codexInstaller";

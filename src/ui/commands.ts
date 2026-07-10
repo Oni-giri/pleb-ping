@@ -7,6 +7,9 @@ import {
   installHookScript,
   installHooksConfig,
   uninstallHooksConfig,
+  installCodexHookScript,
+  installCodexHooksConfig,
+  uninstallCodexHooksConfig,
 } from "../hooks/installer";
 
 /**
@@ -95,6 +98,57 @@ export function registerCommands(
           "Remote Peon: Hooks removed. Run /hooks in Claude Code to confirm."
         );
       }
+    })
+  );
+
+
+  // Install Codex CLI Hooks
+  context.subscriptions.push(
+    vscode.commands.registerCommand("remotePeon.installCodexHooks", () => {
+      const scriptResult = installCodexHookScript(context.extensionPath);
+      if (!scriptResult.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to install Codex hook script: ${scriptResult.error}`
+        );
+        return;
+      }
+
+      const configResult = installCodexHooksConfig();
+      if (!configResult.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to update Codex hooks.json: ${configResult.error}`
+        );
+        return;
+      }
+
+      vscode.window.showInformationMessage(
+        "Remote Peon: Codex CLI hooks installed. Run /hooks in Codex to review and trust them.",
+        "Got it"
+      );
+    })
+  );
+
+  // Remove Codex CLI Hooks
+  context.subscriptions.push(
+    vscode.commands.registerCommand("remotePeon.removeCodexHooks", async () => {
+      const confirm = await vscode.window.showWarningMessage(
+        "Remove Remote Peon hooks from Codex CLI?",
+        { modal: true },
+        "Remove"
+      );
+      if (confirm !== "Remove") return;
+
+      const result = uninstallCodexHooksConfig();
+      if (!result.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to update Codex hooks.json: ${result.error}`
+        );
+        return;
+      }
+
+      vscode.window.showInformationMessage(
+        "Remote Peon: Codex CLI hooks removed. The copied hook script was left in place."
+      );
     })
   );
 
