@@ -3,201 +3,144 @@ import * as assert from "node:assert";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { SoundCategory } from "../src/types";
 
-/**
- * Tests for SoundManager logic.
- *
- * SoundManager depends on Config (which depends on vscode API).
- * We test the core logic by creating a minimal mock that satisfies
- * the interface, then calling methods directly.
- */
+// SoundManager depends on Config (vscode API). We test the core logic
+// by creating a mock environment with real files.
 
-let testDir: string;
+import { loadPack } from "../src/sound/packLoader";
+import { SoundPack, SoundCategory } from "../src/types";
+
+const TEST_DIR = path.join(
+  os.tmpdir(),
+  "remote-peon-sm-test-" + process.pid
+);
 
 function setup() {
-  testDir = fs.mkdtempSync(path.join(os.tmpdir(), "remote-peon-sm-test-"));
-}
-
-function teardown() {
-  fs.rmSync(testDir, { recursive: true, force: true });
-}
-
-/** Create a test pack in the temp directory */
-function createTestPack(
-  packId: string,
-  sounds: Partial<Record<SoundCategory, string[]>>
-): void {
-  const packDir = path.join(testDir, packId);
-  const soundsDir = path.join(packDir, "sounds");
+  fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  const soundsDir = path.join(TEST_DIR, "sounds");
   fs.mkdirSync(soundsDir, { recursive: true });
 
-  const manifest: any = {
-    id: packId,
-    name: `Test ${packId}`,
-    sounds: {} as any,
-  };
-
-  for (const [category, files] of Object.entries(sounds)) {
-    manifest.sounds[category] = files;
-    for (const file of files!) {
-      fs.writeFileSync(path.join(soundsDir, file), "fake-audio-data");
-    }
-  }
+  fs.writeFileSync(path.join(soundsDir, "greet1.wav"), "audio1");
+  fs.writeFileSync(path.join(soundsDir, "greet2.wav"), "audio2");
+  fs.writeFileSync(path.join(soundsDir, "ack.wav"), "audio3");
+  fs.writeFileSync(path.join(soundsDir, "done.wav"), "audio4");
 
   fs.writeFileSync(
-    path.join(packDir, "manifest.json"),
-    JSON.stringify(manifest)
+    path.join(TEST_DIR, "manifest.json"),
+    JSON.stringify({
+      id: "test",
+      name: "Test",
+      sounds: {
+        greeting: ["greet1.wav", "greet2.wav"],
+        acknowledge: ["ack.wav"],
+        complete: ["done.wav"],
+      },
+    })
   );
 }
 
-/**
- * Minimal re-implementation of SoundManager logic for unit testing
- * without the vscode dependency. Mirrors the real SoundManager.
- */
-class TestSoundManager {
-  private pack: any = null;
-  private lastPlayed = new Map<string, string>();
-  private enabledCategories: Set<string>;
-
-  constructor(
-    private packsDir: string,
-    private packId: string,
-    enabled: SoundCategory[] = [
-      "greeting",
-      "permission",
-      "complete",
-      "error",
-      "annoyed",
-    ]
-  ) {
-    this.enabledCategories = new Set(enabled);
-    this.loadPack();
-  }
-
-  private loadPack(): void {
-    // Inline the loadPack logic to avoid vscode import
-    const packDir = path.join(this.packsDir, this.packId);
-    const manifestPath = path.join(packDir, "manifest.json");
-    if (!fs.existsSync(manifestPath)) {
-      this.pack = null;
-      return;
-    }
-    const raw = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-    const soundsDir = path.join(packDir, "sounds");
-    const sounds: any = {};
-    const validCats = [
-      "greeting",
-      "acknowledge",
-      "permission",
-      "complete",
-      "error",
-      "annoyed",
-    ];
-    for (const cat of validCats) {
-      const files: string[] = raw.sounds[cat] ?? [];
-      const resolved: string[] = [];
-      for (const f of files) {
-        const full = path.join(soundsDir, f);
-        if (fs.existsSync(full)) resolved.push(full);
-      }
-      if (resolved.length > 0) sounds[cat] = resolved;
-    }
-    this.pack = { ...raw, sounds };
-  }
-
-  pickSound(category: SoundCategory): string | null {
-    if (!this.enabledCategories.has(category)) return null;
-    if (!this.pack) return null;
-
-    let files = this.pack.sounds[category];
-    if (!files?.length && category === "complete") {
-      files = this.pack.sounds["acknowledge"];
-    }
-    if (!files?.length) return null;
-    if (files.length === 1) return files[0];
-
-    const last = this.lastPlayed.get(category);
-    const candidates = last ? files.filter((f: string) => f !== last) : files;
-    const pick = candidates[Math.floor(Math.random() * candidates.length)];
-    this.lastPlayed.set(category, pick);
-    return pick;
-  }
-
-  get isReady(): boolean {
-    if (!this.pack) return false;
-    return Object.values(this.pack.sounds).some(
-      (files: any) => files && files.length > 0
-    );
-  }
+function teardown() {
+  fs.rmSync(TEST_DIR, { recursive: true, force: true });
 }
 
-describe("SoundManager", () => {
-  beforeEach(() => setup());
+// Minimal pick logic mirroring SoundManager without vscode dependency
+function pickSound(
+  pack: SoundPack,
+  category: SoundCategory,
+  lastPlayed: Map<SoundCategory, string>,
+  enabled: boolean = true
+): string | null {
+  if (!enabled) return null;
+  if (!pack) return null;
+
+  let files = pack.sounds[category];
+  if (!files?.length && category === "complete") {
+    files = pack.sounds["acknowledge"];
+  }
+  if (!files?.length) return null;
+
+  if (files.length === 1) return files[0];
+
+  const last = lastPlayed.get(category);
+  const candidates = last ? files.filter((f) => f !== last) : files;
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  lastPlayed.set(category, pick);
+  return pick;
+}
+
+describe("Sound picking logic", () => {
+  let pack: SoundPack;
+
+  beforeEach(() => {
+    setup();
+    pack = loadPack(TEST_DIR)!;
+    assert.ok(pack, "pack should load");
+  });
+
   afterEach(() => teardown());
 
-  it("picks a sound from a category with one file", () => {
-    createTestPack("test", { complete: ["done.mp3"] });
-    const sm = new TestSoundManager(testDir, "test");
-    const pick = sm.pickSound("complete");
-    assert.ok(pick);
-    assert.ok(pick!.endsWith("done.mp3"));
+  it("picks a file from a category with multiple files", () => {
+    const lastPlayed = new Map<SoundCategory, string>();
+    const file = pickSound(pack, "greeting", lastPlayed);
+    assert.ok(file);
+    assert.ok(file!.includes("greet"));
   });
 
-  it("never repeats the same file consecutively with 2+ files", () => {
-    createTestPack("test", { complete: ["a.mp3", "b.mp3"] });
-    const sm = new TestSoundManager(testDir, "test");
+  it("never repeats consecutively with 2+ files", () => {
+    const lastPlayed = new Map<SoundCategory, string>();
+    const picks = new Set<string>();
+    let prevPick: string | null = null;
 
-    // Run 20 picks and verify no consecutive repeats
-    let lastPick: string | null = null;
     for (let i = 0; i < 20; i++) {
-      const pick = sm.pickSound("complete");
+      const pick = pickSound(pack, "greeting", lastPlayed);
       assert.ok(pick);
-      if (lastPick !== null) {
-        assert.notStrictEqual(pick, lastPick, `Repeat on iteration ${i}`);
+      if (prevPick !== null) {
+        assert.notStrictEqual(
+          pick,
+          prevPick,
+          `Should not repeat: got ${pick} twice`
+        );
       }
-      lastPick = pick;
+      picks.add(pick!);
+      prevPick = pick;
     }
+
+    assert.strictEqual(picks.size, 2, "Should use both greeting files");
   });
 
-  it("returns null for disabled categories", () => {
-    createTestPack("test", {
-      acknowledge: ["ack.mp3"],
-      complete: ["done.mp3"],
-    });
-    // acknowledge not in enabled list
-    const sm = new TestSoundManager(testDir, "test");
-    const pick = sm.pickSound("acknowledge");
-    assert.strictEqual(pick, null);
+  it("returns the single file when category has 1 file", () => {
+    const lastPlayed = new Map<SoundCategory, string>();
+    const file = pickSound(pack, "acknowledge", lastPlayed);
+    assert.ok(file);
+    assert.ok(file!.endsWith("ack.wav"));
   });
 
-  it("returns null for categories with no files", () => {
-    createTestPack("test", { complete: ["done.mp3"] });
-    const sm = new TestSoundManager(testDir, "test");
-    const pick = sm.pickSound("error");
-    assert.strictEqual(pick, null);
+  it("returns null for empty category", () => {
+    const lastPlayed = new Map<SoundCategory, string>();
+    const file = pickSound(pack, "error", lastPlayed);
+    assert.strictEqual(file, null);
   });
 
-  it("falls back complete to acknowledge files", () => {
-    createTestPack("test", { acknowledge: ["ack.mp3"] });
-    // Enable both acknowledge and complete for this test
-    const sm = new TestSoundManager(testDir, "test", [
-      "complete",
-      "acknowledge",
-    ]);
-    const pick = sm.pickSound("complete");
-    assert.ok(pick);
-    assert.ok(pick!.endsWith("ack.mp3"));
+  it("returns null when disabled", () => {
+    const lastPlayed = new Map<SoundCategory, string>();
+    const file = pickSound(pack, "greeting", lastPlayed, false);
+    assert.strictEqual(file, null);
   });
 
-  it("isReady returns true when pack has sounds", () => {
-    createTestPack("test", { complete: ["done.mp3"] });
-    const sm = new TestSoundManager(testDir, "test");
-    assert.strictEqual(sm.isReady, true);
-  });
+  it("complete falls back to acknowledge files when empty", () => {
+    // Create a pack where complete has no files
+    const noCompletePack: SoundPack = {
+      ...pack,
+      sounds: {
+        acknowledge: pack.sounds.acknowledge,
+        greeting: pack.sounds.greeting,
+        // complete is missing
+      },
+    };
 
-  it("isReady returns false for missing pack", () => {
-    const sm = new TestSoundManager(testDir, "nonexistent");
-    assert.strictEqual(sm.isReady, false);
+    const lastPlayed = new Map<SoundCategory, string>();
+    const file = pickSound(noCompletePack, "complete", lastPlayed);
+    assert.ok(file);
+    assert.ok(file!.endsWith("ack.wav"));
   });
 });

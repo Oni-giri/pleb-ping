@@ -4,7 +4,6 @@ const path = require("path");
 
 const isWatch = process.argv.includes("--watch");
 
-/** @type {import('esbuild').BuildOptions} */
 const buildOptions = {
   entryPoints: ["src/extension.ts"],
   bundle: true,
@@ -19,18 +18,14 @@ const buildOptions = {
 
 // Copy hook script to dist
 function copyHookScript() {
-  const srcDir = path.join(__dirname, "src", "hooks");
-  const distDir = path.join(__dirname, "dist", "hooks");
-  fs.mkdirSync(distDir, { recursive: true });
+  const src = path.join(__dirname, "src", "hooks", "remote-peon.sh");
+  const destDir = path.join(__dirname, "dist", "hooks");
+  const dest = path.join(destDir, "remote-peon.sh");
 
-  const scriptName = "remote-peon.sh";
-  const src = path.join(srcDir, scriptName);
-  const dest = path.join(distDir, scriptName);
-
+  fs.mkdirSync(destDir, { recursive: true });
   if (fs.existsSync(src)) {
     fs.copyFileSync(src, dest);
     fs.chmodSync(dest, 0o755);
-    console.log(`Copied ${scriptName} to dist/hooks/`);
   }
 }
 

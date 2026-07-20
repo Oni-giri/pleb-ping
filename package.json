@@ -3,7 +3,7 @@
   "displayName": "Remote Peon",
   "description": "Audio notifications for AI coding agents — works over Remote-SSH and code-server",
   "version": "0.1.0",
-  "publisher": "oni-giri",
+  "publisher": "maxence",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -13,6 +13,8 @@
   ],
   "keywords": [
     "claude-code",
+    "codex",
+    "grok",
     "notifications",
     "audio",
     "remote",
@@ -91,7 +93,7 @@
         "remotePeon.autoInstallHooks": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically install Claude Code hooks when the extension activates."
+          "description": "Automatically install Claude Code hooks (and Grok hooks when ~/.grok exists) on activation."
         },
         "remotePeon.showStatusBar": {
           "type": "boolean",
@@ -111,6 +113,16 @@
         }
       }
     },
+    "views": {
+      "panel": [
+        {
+          "type": "webview",
+          "id": "remotePeon.audio",
+          "name": "Remote Peon",
+          "when": "remotePeon.isRemote"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "remotePeon.selectPack",
@@ -129,8 +141,28 @@
         "title": "Remote Peon: Remove Claude Code Hooks"
       },
       {
+        "command": "remotePeon.installCodexHooks",
+        "title": "Remote Peon: Install Codex CLI Hooks"
+      },
+      {
+        "command": "remotePeon.removeCodexHooks",
+        "title": "Remote Peon: Remove Codex CLI Hooks"
+      },
+      {
+        "command": "remotePeon.installGrokHooks",
+        "title": "Remote Peon: Install Grok Hooks"
+      },
+      {
+        "command": "remotePeon.removeGrokHooks",
+        "title": "Remote Peon: Remove Grok Hooks"
+      },
+      {
         "command": "remotePeon.openPacksDirectory",
         "title": "Remote Peon: Open Packs Directory"
+      },
+      {
+        "command": "remotePeon.downloadPacks",
+        "title": "Remote Peon: Download More Sound Packs"
       }
     ]
   },
@@ -142,15 +174,15 @@
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "vscode:prepublish": "npm run compile",
     "package": "npx @vscode/vsce package",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/**/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "latest",
-    "esbuild": "^0.19.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.1",
     "npm-run-all": "^4.1.5",
-    "tsx": "^4.21.0",
-    "typescript": "^5.0.0"
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
   }
 }

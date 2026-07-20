@@ -7,41 +7,68 @@ import { NativeBackend } from "./audio/nativeBackend";
 import { WebviewBackend } from "./audio/webviewBackend";
 import { StatusBar } from "./ui/statusBar";
 import { registerCommands } from "./ui/commands";
-import { installHookScript, installHooksConfig } from "./hooks/installer";
+import {
+  installHookScript,
+  installHooksConfig,
+  isGrokInstalled,
+  installGrokHookScript,
+  installGrokHooksConfig,
+} from "./hooks/installer";
+import {
+  hasInstalledPacks,
+  downloadDefaultPacks,
+} from "./sound/packDownloader";
 
 let config: Config;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   config = new Config();
 
   const outputChannel = vscode.window.createOutputChannel("Remote Peon");
   outputChannel.appendLine("Remote Peon activated");
-  outputChannel.appendLine(`Event file: ${config.eventFile}`);
-  outputChannel.appendLine(`Packs directory: ${config.packsDirectory}`);
-  outputChannel.appendLine(`Pack: ${config.pack}`);
-  outputChannel.appendLine(`Volume: ${config.volume}`);
 
-  // 1. Sound manager (loads the active pack)
+  // Sound manager
   const soundManager = new SoundManager(config);
+
+  // Auto-download default packs if none exist
+  if (!hasInstalledPacks(config.packsDirectory)) {
+    outputChannel.appendLine("No packs found — downloading defaults...");
+    await downloadDefaultPacks(config.packsDirectory, outputChannel);
+    soundManager.loadActivePack();
+  }
+
   if (!soundManager.isReady) {
     outputChannel.appendLine(
       `WARNING: No valid sound pack found. Check ${config.packsDirectory}`
     );
   }
 
-  // 2. Audio backend (webview for remote, native for local)
-  const audioBackend: AudioBackend = isRemoteEnvironment()
+  // Audio backend
+  const remote = isRemoteEnvironment();
+  const audioBackend: AudioBackend = remote
     ? new WebviewBackend(context, config.packsDirectory)
     : new NativeBackend();
+
+  if (remote) {
+    vscode.commands.executeCommand("setContext", "remotePeon.isRemote", true);
+    context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(
+        "remotePeon.audio",
+        audioBackend as WebviewBackend,
+        { webviewOptions: { retainContextWhenHidden: true } }
+      )
+    );
+  }
+
   outputChannel.appendLine(
-    `Audio backend: ${isRemoteEnvironment() ? "webview (remote)" : "native (local)"}`
+    `Audio backend: ${remote ? "webview (remote)" : "native (local)"}`
   );
 
-  // 3. Status bar
+  // Status bar
   const statusBar = new StatusBar();
   statusBar.setVisible(config.showStatusBar);
 
-  // 4. Event watcher
+  // Event watcher
   const watcher = new EventWatcher(
     config.eventFile,
     config.debounceMs,
@@ -49,39 +76,63 @@ export function activate(context: vscode.ExtensionContext) {
     config.pollingIntervalMs
   );
 
-  // 5. Connect: event → sound → play + status bar update
+  // Connect: event -> sound -> play
   watcher.onEvent((event) => {
     outputChannel.appendLine(`Event: ${event.category}`);
-
-    if (config.showStatusBar) {
-      statusBar.update(event.category);
-    }
 
     const soundFile = soundManager.pickSound(event.category);
     if (soundFile) {
       outputChannel.appendLine(`Playing: ${soundFile}`);
       audioBackend.play(soundFile, config.volume);
     }
+
+    if (config.showStatusBar) {
+      statusBar.update(event.category);
+    }
   });
 
   watcher.start();
   outputChannel.appendLine(`Watching: ${config.eventFile}`);
 
-  // 6. Register commands
-  registerCommands(context, soundManager, audioBackend, config);
+  // Commands
+  registerCommands(context, soundManager, audioBackend, config, outputChannel);
 
-  // 7. Auto-install hooks
+  // Auto-install Claude Code hooks (and Grok when ~/.grok is present)
   if (config.autoInstallHooks) {
     const result = installHookScript(context.extensionPath);
     if (result.success) {
-      outputChannel.appendLine("Hook script installed");
+      outputChannel.appendLine("Claude Code hook script installed");
       installHooksConfig();
     } else {
-      outputChannel.appendLine(`Hook script install failed: ${result.error}`);
+      outputChannel.appendLine(
+        `Claude Code hook script install failed: ${result.error}`
+      );
+    }
+
+    if (isGrokInstalled()) {
+      const grokScript = installGrokHookScript(context.extensionPath);
+      if (grokScript.success) {
+        const grokConfig = installGrokHooksConfig();
+        if (grokConfig.success) {
+          outputChannel.appendLine(
+            grokConfig.modified
+              ? "Grok hooks installed/updated (~/.grok/hooks/remote-peon.json)"
+              : "Grok hooks already up to date"
+          );
+        } else {
+          outputChannel.appendLine(
+            `Grok hooks config failed: ${grokConfig.error}`
+          );
+        }
+      } else {
+        outputChannel.appendLine(
+          `Grok hook script install failed: ${grokScript.error}`
+        );
+      }
     }
   }
 
-  // 8. Config reload
+  // Config reload
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("remotePeon")) {
