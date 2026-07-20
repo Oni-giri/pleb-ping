@@ -1,54 +1,13 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert";
-import { isValidCategory, VALID_CATEGORIES } from "../src/types";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
-/**
- * Tests for event parsing logic used by EventWatcher.
- * We test the parsing helpers directly since EventWatcher.handleChange
- * is private and depends on fs / vscode.
- */
+import { isValidCategory, parseEventLine } from "../src/types";
 
-describe("isValidCategory", () => {
-  it("returns true for all valid categories", () => {
-    for (const cat of VALID_CATEGORIES) {
-      assert.strictEqual(isValidCategory(cat), true, `${cat} should be valid`);
-    }
-  });
-
-  it("returns false for invalid categories", () => {
-    assert.strictEqual(isValidCategory("unknown"), false);
-    assert.strictEqual(isValidCategory(""), false);
-    assert.strictEqual(isValidCategory("COMPLETE"), false);
-    assert.strictEqual(isValidCategory("greet"), false);
-    assert.strictEqual(isValidCategory("complete "), false);
-  });
-});
-
-describe("event line parsing", () => {
-  /**
-   * Mirrors the parsing logic in EventWatcher.handleChange.
-   */
-  function parseEventLine(
-    content: string
-  ): { timestamp: number; category: string } | null {
-    const trimmed = content.trim();
-    if (!trimmed) return null;
-
-    const spaceIndex = trimmed.indexOf(" ");
-    if (spaceIndex === -1) return null;
-
-    const timestampStr = trimmed.substring(0, spaceIndex);
-    const category = trimmed.substring(spaceIndex + 1);
-
-    const timestamp = parseInt(timestampStr, 10);
-    if (isNaN(timestamp)) return null;
-
-    if (!isValidCategory(category)) return null;
-
-    return { timestamp, category };
-  }
-
-  it("parses valid content correctly", () => {
+describe("Event parsing", () => {
+  it("parses valid complete event", () => {
     const result = parseEventLine("1707834567890 complete");
     assert.deepStrictEqual(result, {
       timestamp: 1707834567890,
@@ -56,15 +15,43 @@ describe("event line parsing", () => {
     });
   });
 
-  it("parses all valid categories", () => {
-    for (const cat of VALID_CATEGORIES) {
-      const result = parseEventLine(`1000000000000 ${cat}`);
-      assert.ok(result, `should parse category: ${cat}`);
-      assert.strictEqual(result!.category, cat);
-    }
+  it("parses valid greeting event", () => {
+    const result = parseEventLine("1707834567890 greeting");
+    assert.deepStrictEqual(result, {
+      timestamp: 1707834567890,
+      category: "greeting",
+    });
   });
 
-  it("handles content with trailing newline", () => {
+  it("parses valid permission event", () => {
+    const result = parseEventLine("1707834567890 permission");
+    assert.deepStrictEqual(result, {
+      timestamp: 1707834567890,
+      category: "permission",
+    });
+  });
+
+  it("rejects content with no space", () => {
+    assert.strictEqual(parseEventLine("1707834567890complete"), null);
+  });
+
+  it("rejects invalid category", () => {
+    assert.strictEqual(parseEventLine("1707834567890 foobar"), null);
+  });
+
+  it("rejects empty string", () => {
+    assert.strictEqual(parseEventLine(""), null);
+  });
+
+  it("rejects whitespace-only string", () => {
+    assert.strictEqual(parseEventLine("   "), null);
+  });
+
+  it("rejects non-numeric timestamp", () => {
+    assert.strictEqual(parseEventLine("abc complete"), null);
+  });
+
+  it("handles trailing newline", () => {
     const result = parseEventLine("1707834567890 complete\n");
     assert.deepStrictEqual(result, {
       timestamp: 1707834567890,
@@ -72,25 +59,73 @@ describe("event line parsing", () => {
     });
   });
 
-  it("rejects empty content", () => {
-    assert.strictEqual(parseEventLine(""), null);
-    assert.strictEqual(parseEventLine("  "), null);
-    assert.strictEqual(parseEventLine("\n"), null);
+  it("parses all valid categories", () => {
+    const categories = [
+      "greeting",
+      "acknowledge",
+      "permission",
+      "complete",
+      "error",
+      "annoyed",
+    ];
+    for (const cat of categories) {
+      const result = parseEventLine(`1000 ${cat}`);
+      assert.ok(result, `should parse ${cat}`);
+      assert.strictEqual(result!.category, cat);
+    }
+  });
+});
+
+describe("Multi-line event parsing", () => {
+  it("parses multiple events from a multi-line string", () => {
+    const content =
+      "1707834567890 greeting\n1707834567891 complete\n1707834567892 permission\n";
+    const lines = content.split("\n");
+    const events = lines.map(parseEventLine).filter(Boolean);
+    assert.strictEqual(events.length, 3);
+    assert.strictEqual(events[0]!.category, "greeting");
+    assert.strictEqual(events[1]!.category, "complete");
+    assert.strictEqual(events[2]!.category, "permission");
   });
 
-  it("rejects content without space", () => {
-    assert.strictEqual(parseEventLine("1707834567890complete"), null);
+  it("skips malformed lines in a multi-line string", () => {
+    const content = "1707834567890 greeting\ngarbage\n1707834567892 complete\n";
+    const lines = content.split("\n");
+    const events = lines.map(parseEventLine).filter(Boolean);
+    assert.strictEqual(events.length, 2);
+    assert.strictEqual(events[0]!.category, "greeting");
+    assert.strictEqual(events[1]!.category, "complete");
   });
 
-  it("rejects invalid category", () => {
-    assert.strictEqual(parseEventLine("1707834567890 invalid"), null);
+  it("handles empty lines between events", () => {
+    const content = "1707834567890 greeting\n\n\n1707834567892 complete\n";
+    const lines = content.split("\n");
+    const events = lines.map(parseEventLine).filter(Boolean);
+    assert.strictEqual(events.length, 2);
   });
 
-  it("rejects non-numeric timestamp", () => {
-    assert.strictEqual(parseEventLine("abc complete"), null);
+  it("different categories from concurrent instances are all parsed", () => {
+    const content =
+      "1707834567890 greeting\n1707834567890 complete\n";
+    const lines = content.split("\n");
+    const events = lines.map(parseEventLine).filter(Boolean);
+    assert.strictEqual(events.length, 2);
+    const categories = events.map((e) => e!.category);
+    assert.ok(categories.includes("greeting"));
+    assert.ok(categories.includes("complete"));
+  });
+});
+
+describe("isValidCategory", () => {
+  it("returns true for valid categories", () => {
+    assert.strictEqual(isValidCategory("complete"), true);
+    assert.strictEqual(isValidCategory("greeting"), true);
+    assert.strictEqual(isValidCategory("permission"), true);
   });
 
-  it("rejects content with only timestamp", () => {
-    assert.strictEqual(parseEventLine("1707834567890"), null);
+  it("returns false for invalid categories", () => {
+    assert.strictEqual(isValidCategory("invalid"), false);
+    assert.strictEqual(isValidCategory(""), false);
+    assert.strictEqual(isValidCategory("COMPLETE"), false);
   });
 });

@@ -1,22 +1,15 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-import { PeonEvent, isValidCategory, SoundCategory } from "./types";
+import { PeonEvent, SoundCategory, parseEventLine } from "./types";
 
-/**
- * Watches the event file for changes and emits parsed events.
- *
- * Uses fs.watch (inotify on Linux) by default — zero CPU when idle.
- * Falls back to fs.watchFile (polling) when configured, for NFS/FUSE compatibility.
- */
 export class EventWatcher implements vscode.Disposable {
   private fsWatcher: fs.FSWatcher | null = null;
   private statWatcher: fs.StatWatcher | null = null;
-  private lastEventTime = 0;
-  private lastContent = "";
+  /** Per-category debounce: tracks last fire time for each category. */
+  private lastEventTimeByCategory = new Map<SoundCategory, number>();
 
   private _onEvent = new vscode.EventEmitter<PeonEvent>();
-  /** Subscribe to this to receive parsed events. */
   readonly onEvent = this._onEvent.event;
 
   constructor(
@@ -26,9 +19,6 @@ export class EventWatcher implements vscode.Disposable {
     private readonly pollingIntervalMs: number = 500
   ) {}
 
-  /**
-   * Start watching. Call this once during activation.
-   */
   start(): void {
     this.ensureFileExists();
 
@@ -39,12 +29,9 @@ export class EventWatcher implements vscode.Disposable {
     }
   }
 
-  /**
-   * inotify-based watching. Zero CPU idle. Fires on atomic rename (mv).
-   */
   private startWatching(): void {
     try {
-      this.fsWatcher = fs.watch(this.eventFile, (_eventType) => {
+      this.fsWatcher = fs.watch(this.eventFile, () => {
         this.handleChange();
       });
 
@@ -53,19 +40,14 @@ export class EventWatcher implements vscode.Disposable {
         this.fsWatcher = null;
         setTimeout(() => this.startWatching(), 1000);
       });
-    } catch (err) {
+    } catch {
       console.warn(
-        "Remote Peon: fs.watch failed, falling back to polling:",
-        err
+        "Remote Peon: fs.watch failed, falling back to polling"
       );
       this.startPolling();
     }
   }
 
-  /**
-   * Polling-based watching. Uses ~0.1% CPU. For NFS, FUSE, or other
-   * filesystems where inotify doesn't work.
-   */
   private startPolling(): void {
     this.statWatcher = fs.watchFile(
       this.eventFile,
@@ -77,59 +59,54 @@ export class EventWatcher implements vscode.Disposable {
   }
 
   /**
-   * Called when the event file changes. Reads it, parses it, debounces,
-   * and emits a PeonEvent if valid.
+   * Read all lines from the event file, parse each one, fire events
+   * (with per-category debounce), then truncate the file.
    */
   private handleChange(): void {
-    const now = Date.now();
-
-    if (now - this.lastEventTime < this.debounceMs) {
-      return;
-    }
-
     let content: string;
     try {
-      content = fs.readFileSync(this.eventFile, "utf-8").trim();
+      content = fs.readFileSync(this.eventFile, "utf-8");
     } catch {
       return;
     }
 
-    if (!content || content === this.lastContent) {
-      return;
-    }
-    this.lastContent = content;
-
-    const spaceIndex = content.indexOf(" ");
-    if (spaceIndex === -1) {
+    if (!content.trim()) {
       return;
     }
 
-    const timestampStr = content.substring(0, spaceIndex);
-    const category = content.substring(spaceIndex + 1);
-
-    const timestamp = parseInt(timestampStr, 10);
-    if (isNaN(timestamp)) {
-      return;
+    // Truncate immediately so concurrent appenders don't lose events
+    // that arrive while we're processing.
+    try {
+      fs.writeFileSync(this.eventFile, "");
+    } catch {
+      // Non-fatal — we may re-process these lines next time
     }
 
-    if (!isValidCategory(category)) {
-      return;
-    }
+    const now = Date.now();
+    const lines = content.split("\n");
 
-    this.lastEventTime = now;
-    this._onEvent.fire({ timestamp, category: category as SoundCategory });
+    for (const line of lines) {
+      const parsed = parseEventLine(line);
+      if (!parsed) continue;
+
+      // Per-category debounce
+      const lastTime = this.lastEventTimeByCategory.get(parsed.category) ?? 0;
+      if (now - lastTime < this.debounceMs) {
+        continue;
+      }
+
+      this.lastEventTimeByCategory.set(parsed.category, now);
+      this._onEvent.fire(parsed);
+    }
   }
 
-  /**
-   * Creates the event file if it doesn't exist.
-   */
   private ensureFileExists(): void {
     try {
       const dir = path.dirname(this.eventFile);
       fs.mkdirSync(dir, { recursive: true });
 
       if (!fs.existsSync(this.eventFile)) {
-        fs.writeFileSync(this.eventFile, "", { mode: 0o600 });
+        fs.writeFileSync(this.eventFile, "");
       }
     } catch (err) {
       console.error("Remote Peon: Failed to create event file:", err);

@@ -1,78 +1,48 @@
 import * as vscode from "vscode";
 import { AudioBackend } from "./audioBackend";
 
-/**
- * Plays audio via a hidden VS Code webview.
- *
- * When using Remote-SSH, the extension host runs on the server.
- * We can't call afplay because the server has no speakers. But VS Code's
- * webview renders in the local Electron window (or browser for code-server),
- * so the browser Audio API plays sound locally.
- *
- * The webview is created lazily on first play and auto-disposed after
- * IDLE_TIMEOUT_MS of no sounds to free the ~30-50 MB Chromium renderer.
- */
-export class WebviewBackend implements AudioBackend {
-  private panel: vscode.WebviewPanel | null = null;
-  private idleTimer: ReturnType<typeof setTimeout> | null = null;
-
-  private static IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+export class WebviewBackend implements AudioBackend, vscode.WebviewViewProvider {
+  private view: vscode.WebviewView | null = null;
+  private ready = false;
+  private pendingPlays: Array<{ filePath: string; volume: number }> = [];
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly packsDirectory: string
   ) {}
 
-  play(filePath: string, volume: number): void {
-    const panel = this.ensurePanel();
-    const fileUri = vscode.Uri.file(filePath);
-    const webviewUri = panel.webview.asWebviewUri(fileUri);
-    const safeVolume = Math.max(0, Math.min(1, volume));
+  resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken
+  ): void {
+    this.view = webviewView;
+    this.ready = false;
 
-    panel.webview.postMessage({
-      type: "play",
-      src: webviewUri.toString(),
-      volume: safeVolume,
-    });
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.file(this.packsDirectory),
+        this.context.extensionUri,
+      ],
+    };
 
-    this.resetIdleTimer();
-  }
+    webviewView.webview.html = this.getWebviewHtml();
 
-  private ensurePanel(): vscode.WebviewPanel {
-    if (this.panel) {
-      return this.panel;
-    }
-
-    this.panel = vscode.window.createWebviewPanel(
-      "remotePeonAudio",
-      "Remote Peon",
-      {
-        viewColumn: vscode.ViewColumn.Beside,
-        preserveFocus: true,
-      },
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.file(this.packsDirectory),
-          this.context.extensionUri,
-        ],
-      }
-    );
-
-    this.panel.webview.html = this.getWebviewHtml(this.panel.webview);
-
-    this.panel.webview.onDidReceiveMessage(
+    webviewView.webview.onDidReceiveMessage(
       (msg) => {
-        if (msg && msg.type === "autoplay-blocked") {
+        if (msg.type === "ready") {
+          this.ready = true;
+          this.flushPending();
+        } else if (msg.type === "autoplay-blocked") {
           vscode.window
             .showInformationMessage(
               "Remote Peon: Browser blocked audio. Click 'Enable' then click inside the panel to unlock.",
               "Enable"
             )
             .then((choice) => {
-              if (choice === "Enable" && this.panel) {
-                this.panel.reveal(undefined, false);
+              if (choice === "Enable" && this.view) {
+                this.view.show(false);
               }
             });
         }
@@ -81,77 +51,67 @@ export class WebviewBackend implements AudioBackend {
       this.context.subscriptions
     );
 
-    this.panel.onDidDispose(
+    webviewView.onDidDispose(
       () => {
-        this.panel = null;
+        this.view = null;
+        this.ready = false;
       },
       undefined,
       this.context.subscriptions
     );
-
-    return this.panel;
   }
 
-  private resetIdleTimer(): void {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
+  play(filePath: string, volume: number): void {
+    if (this.view && this.ready) {
+      this.postPlay(filePath, volume);
+    } else {
+      this.pendingPlays.push({ filePath, volume });
+      if (!this.view) {
+        vscode.commands.executeCommand("remotePeon.audio.focus");
+      }
     }
-    this.idleTimer = setTimeout(() => {
-      this.panel?.dispose();
-      this.panel = null;
-    }, WebviewBackend.IDLE_TIMEOUT_MS);
   }
 
-  private getWebviewHtml(webview: vscode.Webview): string {
-    const nonce = createNonce();
-    const csp = [
-      "default-src 'none'",
-      `media-src ${webview.cspSource} blob:`,
-      `img-src ${webview.cspSource} data:`,
-      `style-src 'nonce-${nonce}'`,
-      `script-src 'nonce-${nonce}'`,
-    ].join("; ");
+  private postPlay(filePath: string, volume: number): void {
+    if (!this.view) return;
+    const fileUri = vscode.Uri.file(filePath);
+    const webviewUri = this.view.webview.asWebviewUri(fileUri);
+    this.view.webview.postMessage({
+      type: "play",
+      src: webviewUri.toString(),
+      volume,
+    });
+  }
 
+  private flushPending(): void {
+    for (const pending of this.pendingPlays) {
+      this.postPlay(pending.filePath, pending.volume);
+    }
+    this.pendingPlays = [];
+  }
+
+  private getWebviewHtml(): string {
     return `<!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <title>Remote Peon Audio</title>
-  <style nonce="${nonce}">
-    #unlock {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.85);
-      color: white;
-      cursor: pointer;
-      font: 20px system-ui;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-    }
-  </style>
-</head>
+<head><meta charset="UTF-8"><title>Remote Peon Audio</title></head>
 <body>
-  <div id="unlock">
+  <div id="unlock" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);
+    color:white;cursor:pointer;font:20px system-ui;
+    align-items:center;justify-content:center;z-index:9999;">
     Click anywhere to enable Remote Peon sounds
   </div>
-  <script nonce="${nonce}">
+  <script>
     (function() {
       const audio = new Audio();
       const vscode = acquireVsCodeApi();
       let unlocked = false;
       let pendingPlay = null;
 
+      vscode.postMessage({ type: "ready" });
+
       window.addEventListener("message", function(event) {
         const msg = event.data;
-        if (
-          msg &&
-          msg.type === "play" &&
-          typeof msg.src === "string" &&
-          typeof msg.volume === "number"
-        ) {
+        if (msg.type === "play") {
           audio.src = msg.src;
           audio.volume = msg.volume;
           audio.play().catch(function() {
@@ -189,20 +149,8 @@ export class WebviewBackend implements AudioBackend {
   }
 
   dispose(): void {
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-    }
-    this.panel?.dispose();
-    this.panel = null;
+    this.view = null;
+    this.ready = false;
+    this.pendingPlays = [];
   }
-}
-
-function createNonce(): string {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let value = "";
-  for (let i = 0; i < 32; i++) {
-    value += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return value;
 }

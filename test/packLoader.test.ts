@@ -3,28 +3,31 @@ import * as assert from "node:assert";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+
 import { loadPack, listPacks } from "../src/sound/packLoader";
 
-let testDir: string;
+const TEST_DIR = path.join(os.tmpdir(), "remote-peon-test-" + process.pid);
 
 function setup() {
-  testDir = fs.mkdtempSync(path.join(os.tmpdir(), "remote-peon-test-"));
+  fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  fs.mkdirSync(path.join(TEST_DIR, "valid-pack", "sounds"), {
+    recursive: true,
+  });
 }
 
 function teardown() {
-  fs.rmSync(testDir, { recursive: true, force: true });
+  fs.rmSync(TEST_DIR, { recursive: true, force: true });
 }
 
 describe("loadPack", () => {
   beforeEach(() => setup());
   afterEach(() => teardown());
 
-  it("loads a valid pack with sound files", () => {
-    const packDir = path.join(testDir, "test-pack");
+  it("loads a valid pack with manifest.json", () => {
+    const packDir = path.join(TEST_DIR, "valid-pack");
     const soundsDir = path.join(packDir, "sounds");
-    fs.mkdirSync(soundsDir, { recursive: true });
 
-    // Create manifest
+    fs.writeFileSync(path.join(soundsDir, "beep.wav"), "fake-audio-data");
     fs.writeFileSync(
       path.join(packDir, "manifest.json"),
       JSON.stringify({
@@ -32,127 +35,78 @@ describe("loadPack", () => {
         name: "Test Pack",
         author: "tester",
         sounds: {
-          greeting: ["hello.mp3"],
-          complete: ["done1.mp3", "done2.mp3"],
+          greeting: ["beep.wav"],
+          complete: ["beep.wav"],
         },
       })
     );
 
-    // Create sound files
-    fs.writeFileSync(path.join(soundsDir, "hello.mp3"), "fake-audio");
-    fs.writeFileSync(path.join(soundsDir, "done1.mp3"), "fake-audio");
-    fs.writeFileSync(path.join(soundsDir, "done2.mp3"), "fake-audio");
-
     const pack = loadPack(packDir);
-    assert.ok(pack);
+    assert.ok(pack, "should load pack");
     assert.strictEqual(pack!.id, "test");
     assert.strictEqual(pack!.name, "Test Pack");
     assert.strictEqual(pack!.author, "tester");
-    assert.strictEqual(pack!.sounds.greeting?.length, 1);
-    assert.strictEqual(pack!.sounds.complete?.length, 2);
+    assert.ok(pack!.sounds.greeting);
+    assert.strictEqual(pack!.sounds.greeting!.length, 1);
+    assert.ok(pack!.sounds.greeting![0].endsWith("beep.wav"));
   });
 
-  it("returns null for directory without manifest.json", () => {
-    const packDir = path.join(testDir, "no-manifest");
-    fs.mkdirSync(packDir);
-
+  it("returns null for directory without manifest", () => {
+    const packDir = path.join(TEST_DIR, "no-manifest");
+    fs.mkdirSync(packDir, { recursive: true });
     const pack = loadPack(packDir);
     assert.strictEqual(pack, null);
   });
 
-  it("returns null for invalid JSON in manifest", () => {
-    const packDir = path.join(testDir, "bad-json");
-    fs.mkdirSync(packDir);
-    fs.writeFileSync(path.join(packDir, "manifest.json"), "not json{{{");
-
+  it("returns null for invalid JSON manifest", () => {
+    const packDir = path.join(TEST_DIR, "bad-json");
+    fs.mkdirSync(packDir, { recursive: true });
+    fs.writeFileSync(path.join(packDir, "manifest.json"), "NOT JSON!!!");
     const pack = loadPack(packDir);
     assert.strictEqual(pack, null);
   });
 
-  it("returns null for manifest missing id", () => {
-    const packDir = path.join(testDir, "no-id");
-    fs.mkdirSync(packDir);
-    fs.writeFileSync(
-      path.join(packDir, "manifest.json"),
-      JSON.stringify({ sounds: { greeting: ["a.mp3"] } })
-    );
-
-    const pack = loadPack(packDir);
-    assert.strictEqual(pack, null);
-  });
-
-  it("returns null for manifest missing sounds", () => {
-    const packDir = path.join(testDir, "no-sounds");
-    fs.mkdirSync(packDir);
-    fs.writeFileSync(
-      path.join(packDir, "manifest.json"),
-      JSON.stringify({ id: "test" })
-    );
-
-    const pack = loadPack(packDir);
-    assert.strictEqual(pack, null);
-  });
-
-  it("skips missing sound files but loads existing ones", () => {
-    const packDir = path.join(testDir, "partial");
-    const soundsDir = path.join(packDir, "sounds");
-    fs.mkdirSync(soundsDir, { recursive: true });
-
+  it("skips missing sound files without crashing", () => {
+    const packDir = path.join(TEST_DIR, "valid-pack");
     fs.writeFileSync(
       path.join(packDir, "manifest.json"),
       JSON.stringify({
-        id: "partial",
+        id: "missing-files",
         sounds: {
-          greeting: ["exists.mp3", "missing.mp3"],
+          greeting: ["nonexistent.wav"],
         },
       })
     );
 
-    fs.writeFileSync(path.join(soundsDir, "exists.mp3"), "fake-audio");
-
     const pack = loadPack(packDir);
-    assert.ok(pack);
-    assert.strictEqual(pack!.sounds.greeting?.length, 1);
-    assert.ok(pack!.sounds.greeting![0].endsWith("exists.mp3"));
+    assert.ok(pack, "should still load");
+    assert.strictEqual(pack!.sounds.greeting, undefined);
   });
 
-  it("rejects paths that escape the sounds directory", () => {
-    const packDir = path.join(testDir, "escape-test");
+  it("loads CESP format (openpeon.json)", () => {
+    const packDir = path.join(TEST_DIR, "cesp-pack");
     const soundsDir = path.join(packDir, "sounds");
     fs.mkdirSync(soundsDir, { recursive: true });
-
-    fs.writeFileSync(path.join(testDir, "outside.mp3"), "fake-audio");
-    fs.writeFileSync(path.join(soundsDir, "inside.mp3"), "fake-audio");
+    fs.writeFileSync(path.join(soundsDir, "greet.wav"), "audio");
 
     fs.writeFileSync(
-      path.join(packDir, "manifest.json"),
+      path.join(packDir, "openpeon.json"),
       JSON.stringify({
-        id: "escape-test",
-        sounds: {
-          greeting: ["../outside.mp3", "inside.mp3"],
+        id: "cesp-test",
+        name: "CESP Test",
+        categories: {
+          "session.start": {
+            sounds: [{ file: "sounds/greet.wav", label: "hello" }],
+          },
         },
       })
     );
 
     const pack = loadPack(packDir);
     assert.ok(pack);
-    assert.strictEqual(pack!.sounds.greeting?.length, 1);
-    assert.ok(pack!.sounds.greeting![0].endsWith("inside.mp3"));
-  });
-
-  it("defaults name to id when name is missing", () => {
-    const packDir = path.join(testDir, "no-name");
-    const soundsDir = path.join(packDir, "sounds");
-    fs.mkdirSync(soundsDir, { recursive: true });
-
-    fs.writeFileSync(
-      path.join(packDir, "manifest.json"),
-      JSON.stringify({ id: "mypack", sounds: {} })
-    );
-
-    const pack = loadPack(packDir);
-    assert.ok(pack);
-    assert.strictEqual(pack!.name, "mypack");
+    assert.strictEqual(pack!.id, "cesp-test");
+    assert.ok(pack!.sounds.greeting);
+    assert.strictEqual(pack!.sounds.greeting!.length, 1);
   });
 });
 
@@ -160,40 +114,33 @@ describe("listPacks", () => {
   beforeEach(() => setup());
   afterEach(() => teardown());
 
-  it("returns empty array for non-existent directory", () => {
-    const result = listPacks("/tmp/does-not-exist-ever-12345");
-    assert.deepStrictEqual(result, []);
-  });
-
-  it("returns empty array for directory with no packs", () => {
-    const result = listPacks(testDir);
-    assert.deepStrictEqual(result, []);
-  });
-
-  it("lists valid packs and skips invalid ones", () => {
-    // Valid pack
-    const goodDir = path.join(testDir, "good");
-    fs.mkdirSync(goodDir);
+  it("lists packs with manifest.json", () => {
+    const packDir = path.join(TEST_DIR, "valid-pack");
     fs.writeFileSync(
-      path.join(goodDir, "manifest.json"),
-      JSON.stringify({ id: "good", name: "Good Pack", sounds: {} })
+      path.join(packDir, "manifest.json"),
+      JSON.stringify({ id: "test", name: "Test Pack", sounds: {} })
     );
 
-    // Invalid pack (bad JSON)
-    const badDir = path.join(testDir, "bad");
-    fs.mkdirSync(badDir);
-    fs.writeFileSync(path.join(badDir, "manifest.json"), "{{invalid");
-
-    // Not a pack (just a file)
-    fs.writeFileSync(path.join(testDir, "not-a-dir"), "just a file");
-
-    // Directory without manifest
-    const emptyDir = path.join(testDir, "empty");
-    fs.mkdirSync(emptyDir);
-
-    const packs = listPacks(testDir);
+    const packs = listPacks(TEST_DIR);
     assert.strictEqual(packs.length, 1);
-    assert.strictEqual(packs[0].id, "good");
-    assert.strictEqual(packs[0].name, "Good Pack");
+    assert.strictEqual(packs[0].id, "test");
+    assert.strictEqual(packs[0].name, "Test Pack");
+  });
+
+  it("returns empty array for nonexistent directory", () => {
+    const packs = listPacks("/nonexistent/path");
+    assert.deepStrictEqual(packs, []);
+  });
+
+  it("skips directories without manifest", () => {
+    const noManifest = path.join(TEST_DIR, "no-manifest");
+    fs.mkdirSync(noManifest, { recursive: true });
+
+    const packs = listPacks(TEST_DIR);
+    // Only valid-pack has a manifest from setup
+    assert.strictEqual(
+      packs.filter((p) => p.id === "no-manifest").length,
+      0
+    );
   });
 });

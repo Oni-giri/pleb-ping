@@ -1,10 +1,6 @@
 import * as vscode from "vscode";
 import { SoundCategory } from "../types";
 
-/**
- * Shows the current agent state in the VS Code status bar.
- * Auto-resets to idle after 30 seconds.
- */
 export class StatusBar implements vscode.Disposable {
   private item: vscode.StatusBarItem;
   private resetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -22,9 +18,6 @@ export class StatusBar implements vscode.Disposable {
     this.item.show();
   }
 
-  /**
-   * Update the status bar to reflect a new event.
-   */
   update(category: SoundCategory): void {
     const display: Record<SoundCategory, { icon: string; label: string }> = {
       greeting: { icon: "$(zap)", label: "Ready" },
@@ -46,9 +39,6 @@ export class StatusBar implements vscode.Disposable {
     }, StatusBar.RESET_MS);
   }
 
-  /**
-   * Show or hide the status bar item.
-   */
   setVisible(visible: boolean): void {
     if (visible) {
       this.item.show();
