@@ -7,7 +7,13 @@ import { NativeBackend } from "./audio/nativeBackend";
 import { WebviewBackend } from "./audio/webviewBackend";
 import { StatusBar } from "./ui/statusBar";
 import { registerCommands } from "./ui/commands";
-import { installHookScript, installHooksConfig } from "./hooks/installer";
+import {
+  installHookScript,
+  installHooksConfig,
+  isGrokInstalled,
+  installGrokHookScript,
+  installGrokHooksConfig,
+} from "./hooks/installer";
 import {
   hasInstalledPacks,
   downloadDefaultPacks,
@@ -91,16 +97,38 @@ export async function activate(context: vscode.ExtensionContext) {
   // Commands
   registerCommands(context, soundManager, audioBackend, config, outputChannel);
 
-  // Auto-install hooks
+  // Auto-install Claude Code hooks (and Grok when ~/.grok is present)
   if (config.autoInstallHooks) {
     const result = installHookScript(context.extensionPath);
     if (result.success) {
-      outputChannel.appendLine("Hook script installed");
+      outputChannel.appendLine("Claude Code hook script installed");
       installHooksConfig();
     } else {
       outputChannel.appendLine(
-        `Hook script install failed: ${result.error}`
+        `Claude Code hook script install failed: ${result.error}`
       );
+    }
+
+    if (isGrokInstalled()) {
+      const grokScript = installGrokHookScript(context.extensionPath);
+      if (grokScript.success) {
+        const grokConfig = installGrokHooksConfig();
+        if (grokConfig.success) {
+          outputChannel.appendLine(
+            grokConfig.modified
+              ? "Grok hooks installed/updated (~/.grok/hooks/remote-peon.json)"
+              : "Grok hooks already up to date"
+          );
+        } else {
+          outputChannel.appendLine(
+            `Grok hooks config failed: ${grokConfig.error}`
+          );
+        }
+      } else {
+        outputChannel.appendLine(
+          `Grok hook script install failed: ${grokScript.error}`
+        );
+      }
     }
   }
 

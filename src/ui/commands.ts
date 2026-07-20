@@ -7,6 +7,12 @@ import {
   installHookScript,
   installHooksConfig,
   uninstallHooksConfig,
+  installCodexHookScript,
+  installCodexHooksConfig,
+  uninstallCodexHooksConfig,
+  installGrokHookScript,
+  installGrokHooksConfig,
+  uninstallGrokHooksConfig,
 } from "../hooks/installer";
 import { downloadAdditionalPacks } from "../sound/packDownloader";
 
@@ -20,31 +26,23 @@ export function registerCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand("remotePeon.selectPack", async () => {
       const packs = soundManager.getAvailablePacks();
-
       if (packs.length === 0) {
         vscode.window.showWarningMessage(
           `No sound packs found in ${config.packsDirectory}. Add a pack folder with a manifest.json.`
         );
         return;
       }
-
       const items = packs.map((p) => ({
         label: p.name,
         description: p.id === config.pack ? "(active)" : "",
         id: p.id,
       }));
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: "Select a sound pack",
-      });
-
+      const selected = await vscode.window.showQuickPick(items, { placeHolder: "Select a sound pack" });
       if (selected) {
-        await vscode.workspace
-          .getConfiguration("remotePeon")
-          .update("pack", selected.id, vscode.ConfigurationTarget.Global);
-        vscode.window.showInformationMessage(
-          `Remote Peon: Switched to "${selected.label}"`
+        await vscode.workspace.getConfiguration("remotePeon").update(
+          "pack", selected.id, vscode.ConfigurationTarget.Global
         );
+        vscode.window.showInformationMessage(`Remote Peon: Switched to "${selected.label}"`);
       }
     })
   );
@@ -53,7 +51,6 @@ export function registerCommands(
     vscode.commands.registerCommand("remotePeon.previewSounds", async () => {
       for (const category of VALID_CATEGORIES) {
         if (!config.isCategoryEnabled(category)) continue;
-
         const file = soundManager.pickSound(category);
         if (file) {
           vscode.window.showInformationMessage(`Playing: ${category}`);
@@ -67,22 +64,15 @@ export function registerCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand("remotePeon.installHooks", () => {
       const result = installHookScript(context.extensionPath);
-      if (result.success) {
-        installHooksConfig();
-      } else {
-        vscode.window.showErrorMessage(
-          `Remote Peon: Failed to install hooks: ${result.error}`
-        );
-      }
+      if (result.success) installHooksConfig();
+      else vscode.window.showErrorMessage(`Remote Peon: Failed to install hooks: ${result.error}`);
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("remotePeon.removeHooks", async () => {
       const confirm = await vscode.window.showWarningMessage(
-        "Remove Remote Peon hooks from Claude Code?",
-        { modal: true },
-        "Remove"
+        "Remove Remote Peon hooks from Claude Code?", { modal: true }, "Remove"
       );
       if (confirm === "Remove") {
         uninstallHooksConfig();
@@ -94,9 +84,92 @@ export function registerCommands(
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("remotePeon.installCodexHooks", () => {
+      const scriptResult = installCodexHookScript(context.extensionPath);
+      if (!scriptResult.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to install Codex hook script: ${scriptResult.error}`
+        );
+        return;
+      }
+      const configResult = installCodexHooksConfig();
+      if (!configResult.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to update Codex hooks.json: ${configResult.error}`
+        );
+        return;
+      }
+      vscode.window.showInformationMessage(
+        "Remote Peon: Codex CLI hooks installed. Run /hooks in Codex to review and trust them.",
+        "Got it"
+      );
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("remotePeon.removeCodexHooks", async () => {
+      const confirm = await vscode.window.showWarningMessage(
+        "Remove Remote Peon hooks from Codex CLI?", { modal: true }, "Remove"
+      );
+      if (confirm !== "Remove") return;
+      const result = uninstallCodexHooksConfig();
+      if (!result.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to update Codex hooks.json: ${result.error}`
+        );
+        return;
+      }
+      vscode.window.showInformationMessage(
+        "Remote Peon: Codex CLI hooks removed. The copied hook script was left in place."
+      );
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("remotePeon.installGrokHooks", () => {
+      const scriptResult = installGrokHookScript(context.extensionPath);
+      if (!scriptResult.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to install Grok hook script: ${scriptResult.error}`
+        );
+        return;
+      }
+      const configResult = installGrokHooksConfig();
+      if (!configResult.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to write Grok hooks: ${configResult.error}`
+        );
+        return;
+      }
+      vscode.window.showInformationMessage(
+        "Remote Peon: Grok hooks installed. Run /hooks in Grok (or press r in the Hooks tab) to reload.",
+        "Got it"
+      );
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("remotePeon.removeGrokHooks", async () => {
+      const confirm = await vscode.window.showWarningMessage(
+        "Remove Remote Peon hooks from Grok?", { modal: true }, "Remove"
+      );
+      if (confirm !== "Remove") return;
+      const result = uninstallGrokHooksConfig();
+      if (!result.success) {
+        vscode.window.showErrorMessage(
+          `Remote Peon: Failed to remove Grok hooks: ${result.error}`
+        );
+        return;
+      }
+      vscode.window.showInformationMessage(
+        "Remote Peon: Grok hooks removed. The copied hook script was left in place. Reload hooks with /hooks."
+      );
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("remotePeon.openPacksDirectory", () => {
-      const uri = vscode.Uri.file(config.packsDirectory);
-      vscode.commands.executeCommand("revealFileInOS", uri);
+      vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(config.packsDirectory));
     })
   );
 
